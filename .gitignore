@@ -1,0 +1,60 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.p8
+*.crt
+*.cer
+*.jks
+*.keystore
+*.mobileprovision
+
+# Dependencies and package manager cache
+node_modules
+dist
+dist-ssr
+*.local
+coverage
+.nyc_output
+
+# Test and tooling output
+playwright-report
+test-results
+.vitest
+.cache
+.eslintcache
+
+# Vite/TypeScript build info
+*.tsbuildinfo
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# iOS / Xcode generated artifacts
+ios/DerivedData/
+ios/App/App/public/
+ios/App/build/
+ios/build/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
