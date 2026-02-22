@@ -1,5 +1,6 @@
 import { LEVELS, ACHIEVEMENT_DEFS, SPORTS } from './constants';
 
+// XP is awarded only on activity save; level is derived from total XP.
 // Calculate XP earned for an activity
 export function calculateXP(activity) {
   let xp = 20; // base XP for any workout

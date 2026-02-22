@@ -25,6 +25,11 @@ These are required at startup by `src/lib/firebase.js`:
 - `VITE_FIREBASE_APP_ID`
 - `VITE_FIREBASE_MEASUREMENT_ID`
 
+Optional (Profile → Connect accounts):
+
+- **Strava:** `VITE_STRAVA_CLIENT_ID` — for “Connect Strava” and import activities. If you use a Cloud Function to exchange the auth code for a token, also set `STRAVA_CLIENT_ID` and `STRAVA_CLIENT_SECRET` in the function config.
+- **Apple Health (iOS):** No env vars; uses Capacitor Health plugin. “Connect Apple Health” / “Import from Health” appear only on iOS. See [MOBILE.md](MOBILE.md).
+
 ## Run, test, and build commands
 
 - `npm run dev` - start local Vite dev server.
@@ -45,9 +50,14 @@ These are required at startup by `src/lib/firebase.js`:
 4. Validate before release:
    - `npm run lint`
    - `npm run build`
+   - `npm run test`
    - `npm run test:smoke`
-5. Deploy:
+5. Deploy (rules and indexes are required for the app to work correctly):
    - `firebase deploy --only firestore:rules,firestore:indexes,hosting`
+
+## Critical path (manual QA)
+
+Verify: signup → login → add activity (each sport: run, cycle, swim, lift) → edit → delete → XP/level → unlock achievement → join challenge → complete challenge → leaderboard. Test with an empty account and with many activities. See `RELEASE_CHECKLIST.md` for post-release verification.
 
 ## Rollback and basic troubleshooting
 

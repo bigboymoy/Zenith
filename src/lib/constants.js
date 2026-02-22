@@ -10,7 +10,7 @@ export const SPORTS = {
   cycle: {
     label: "Cycle",
     icon: "🚴",
-    color: "#3b82f6",
+    color: "#555",
     unit: "mi",
     metricLabel: "Distance",
   },

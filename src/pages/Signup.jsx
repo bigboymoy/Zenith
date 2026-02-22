@@ -2,18 +2,16 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { UserPlus, Mail, Lock, User, AlertCircle } from 'lucide-react';
+import { COPY } from '../lib/copy';
 
 function getSignupErrorMessage(err) {
-  if (err?.code === 'auth/email-already-in-use') {
-    return 'An account with this email already exists. Try logging in instead.';
+  if (err?.code === 'auth/email-already-in-use') return COPY.errorEmailInUse;
+  if (err?.code === 'auth/invalid-email') return COPY.errorInvalidEmail;
+  if (err?.code === 'auth/weak-password') return COPY.errorWeakPassword;
+  if (err?.code === 'auth/network-request-failed' || err?.message?.toLowerCase?.().includes('unavailable') || err?.message?.toLowerCase?.().includes('connection')) {
+    return COPY.errorNetwork;
   }
-  if (err?.code === 'auth/invalid-email') {
-    return 'Please enter a valid email address.';
-  }
-  if (err?.code === 'auth/weak-password') {
-    return 'Password is too weak. Use at least 6 characters.';
-  }
-  return 'Unable to create account right now. Please try again.';
+  return COPY.errorSignupGeneric;
 }
 
 export default function Signup() {
@@ -30,7 +28,7 @@ export default function Signup() {
     e.preventDefault();
     
     if (password !== confirmPassword) {
-      setError('Passwords do not match');
+      setError(COPY.errorPasswordsNoMatch);
       return;
     }
 
@@ -52,8 +50,8 @@ export default function Signup() {
       <div className="auth-card">
         <div className="auth-header">
           <div className="auth-logo">Z</div>
-          <h1 className="auth-title">Create Account</h1>
-          <p className="auth-subtitle">Join the Zenith fitness community</p>
+          <h1 className="auth-title">{COPY.authCreateAccount}</h1>
+          <p className="auth-subtitle">{COPY.authSignupSubtitle}</p>
         </div>
 
         {error && (
@@ -63,74 +61,82 @@ export default function Signup() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="auth-form">
+        <form onSubmit={handleSubmit} className="auth-form" aria-label={COPY.authSignupFormLabel}>
           <div className="form-group">
-            <label className="form-label">Full Name</label>
+            <label className="form-label" htmlFor="signup-name">{COPY.authFullName}</label>
             <div className="input-with-icon">
-              <User className="input-icon" size={18} />
-              <input 
-                type="text" 
-                className="form-input" 
-                placeholder="John Doe" 
+              <User className="input-icon" size={18} aria-hidden="true" />
+              <input
+                id="signup-name"
+                type="text"
+                className="form-input"
+                placeholder={COPY.authPlaceholderName}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                required 
+                required
+                autoComplete="name"
               />
             </div>
           </div>
 
           <div className="form-group">
-            <label className="form-label">Email Address</label>
+            <label className="form-label" htmlFor="signup-email">{COPY.authEmailAddress}</label>
             <div className="input-with-icon">
-              <Mail className="input-icon" size={18} />
-              <input 
-                type="email" 
-                className="form-input" 
-                placeholder="name@example.com" 
+              <Mail className="input-icon" size={18} aria-hidden="true" />
+              <input
+                id="signup-email"
+                type="email"
+                className="form-input"
+                placeholder={COPY.authPlaceholderEmail}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                required 
+                required
+                autoComplete="email"
               />
             </div>
           </div>
 
           <div className="form-group">
-            <label className="form-label">Password</label>
+            <label className="form-label" htmlFor="signup-password">{COPY.authPassword}</label>
             <div className="input-with-icon">
-              <Lock className="input-icon" size={18} />
-              <input 
-                type="password" 
-                className="form-input" 
-                placeholder="••••••••" 
+              <Lock className="input-icon" size={18} aria-hidden="true" />
+              <input
+                id="signup-password"
+                type="password"
+                className="form-input"
+                placeholder={COPY.authPlaceholderPassword}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                required 
+                required
+                autoComplete="new-password"
               />
             </div>
           </div>
 
           <div className="form-group">
-            <label className="form-label">Confirm Password</label>
+            <label className="form-label" htmlFor="signup-confirm-password">{COPY.authConfirmPassword}</label>
             <div className="input-with-icon">
-              <Lock className="input-icon" size={18} />
-              <input 
-                type="password" 
-                className="form-input" 
-                placeholder="••••••••" 
+              <Lock className="input-icon" size={18} aria-hidden="true" />
+              <input
+                id="signup-confirm-password"
+                type="password"
+                className="form-input"
+                placeholder={COPY.authPlaceholderPassword}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                required 
+                required
+                autoComplete="new-password"
               />
             </div>
           </div>
 
-          <button type="submit" className="btn btn-primary auth-btn" disabled={loading}>
-            {loading ? 'Creating account...' : <><UserPlus size={18} /> Sign Up</>}
+          <button type="submit" className="btn btn-primary auth-btn" disabled={loading} aria-busy={loading}>
+            {loading ? COPY.authCreatingAccount : <><UserPlus size={18} /> {COPY.authSignUpButton}</>}
           </button>
         </form>
 
         <div className="auth-footer">
-          Already have an account? <Link to="/login">Log In</Link>
+          {COPY.authHasAccount} <Link to="/login">{COPY.authLogInLink}</Link>
         </div>
       </div>
     </div>

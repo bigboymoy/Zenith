@@ -47,6 +47,15 @@ vi.mock('../lib/firestore', () => ({
   firestoreUser: {
     addXP: addXPMock,
   },
+  firestoreWorkoutTemplates: {
+    getByUser: vi.fn().mockResolvedValue([]),
+    create: vi.fn(),
+  },
+  firestoreFeed: {
+    fanOutActivityToFeed: vi.fn().mockResolvedValue(undefined),
+  },
+  firestoreOneRepMax: { set: vi.fn(), get: vi.fn() },
+  runSegmentMatchingForActivity: vi.fn().mockResolvedValue(undefined),
 }));
 
 import Login from '../pages/Login';
@@ -90,16 +99,19 @@ describe('smoke: auth and log workout', () => {
     await user.click(screen.getByRole('button', { name: /^Log Workout$/ }));
 
     await waitFor(() => {
-      expect(addActivityMock).toHaveBeenCalledTimes(1);
-      expect(addActivityMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          userId: 'user_1',
-          sport: 'run',
-          title: 'Morning Run',
-        }),
-      );
-      expect(addXPMock).toHaveBeenCalledWith('user_1', expect.any(Number));
-      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('heading', { name: 'Workout logged!' })).toBeInTheDocument();
     });
+    expect(addActivityMock).toHaveBeenCalledTimes(1);
+    expect(addActivityMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user_1',
+        sport: 'run',
+        title: 'Morning Run',
+      }),
+    );
+    expect(addXPMock).toHaveBeenCalledWith('user_1', expect.any(Number));
+
+    await user.click(screen.getByRole('button', { name: /^Done$/ }));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,0 +1,8 @@
+---
+description: When user says "do the X protocol", run the steps in .cursor/PROTOCOLS.md for that protocol
+alwaysApply: true
+---
+
+# Protocols
+
+When the user asks to run a protocol by name (e.g. "do the github protocol", "run the github protocol", "github protocol"), open **`.cursor/PROTOCOLS.md`** and execute the steps listed under that protocol. Follow the protocol exactly: run the commands it specifies, summarize results, and deliver any suggested output (e.g. commit message, terminal instructions) as specified.

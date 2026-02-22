@@ -1,8 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { useApp } from '../App';
 import { firestoreUser } from '../lib/firestore';
 import { getLevelInfo, calculateStreak } from '../lib/gamification';
+import AddActivityModal from '../components/AddActivityModal';
+import { COPY } from '../lib/copy';
 
 const SORT_METRICS = [
   { value: 'xp', label: 'Total XP' },
@@ -38,17 +41,24 @@ export default function Leaderboard() {
   const [sortMetric, setSortMetric] = useState('xp');
   const [tab, setTab] = useState('global');
   const [dbUsers, setDbUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     async function fetchUsers() {
+      setLoading(true);
       try {
         const users = await firestoreUser.getAll();
-        setDbUsers(users);
+        if (!cancelled) setDbUsers(users);
       } catch (err) {
         console.error('Error fetching leaderboard:', err);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
     fetchUsers();
+    return () => { cancelled = true; };
   }, []);
 
   // Build user's entry
@@ -73,7 +83,7 @@ export default function Leaderboard() {
 
     return {
       uid: user?.uid || 'me',
-      name: user?.name || 'You',
+      name: user?.name || COPY.leaderboardYou,
       username: user?.username || 'you',
       avatar: null,
       xp: user?.xp || 0,
@@ -97,24 +107,43 @@ export default function Leaderboard() {
 
   const displayUsers = tab === 'global' ? allUsers : friendUsers;
   const myRank = displayUsers.findIndex(u => u.isMe) + 1;
+  const isEmptyBoard = !loading && displayUsers.length <= 1;
 
   return (
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Leaderboard</h1>
+          <h1 className="page-title">{COPY.leaderboardTitle}</h1>
           <p className="page-subtitle">
-            {tab === 'global' ? `Your rank: #${myRank} of ${displayUsers.length}` : `Your rank: #${myRank} among friends`}
+            {loading ? COPY.leaderboardLoading : tab === 'global' ? `${COPY.leaderboardYourRank} #${myRank} ${COPY.leaderboardOf} ${displayUsers.length}` : `${COPY.leaderboardYourRank} #${myRank} ${COPY.leaderboardAmongFriends}`}
           </p>
         </div>
       </div>
 
+      {loading ? (
+        <div className="loading-skeleton" aria-busy="true" aria-live="polite">
+          <div className="skeleton-block" style={{ height: 48, marginBottom: 16 }} />
+          <div className="skeleton-block" style={{ height: 200, marginBottom: 16 }} />
+          <div className="skeleton-block" style={{ height: 56 }} />
+        </div>
+      ) : isEmptyBoard ? (
+        <div className="empty-state">
+          <span className="empty-icon" aria-hidden="true">🏆</span>
+          <h3 className="empty-title">{COPY.leaderboardEmptyTitle}</h3>
+          <p className="empty-desc">{COPY.leaderboardEmptyDesc}</p>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-primary" onClick={() => setShowAdd(true)}>{COPY.dashboardLogWorkout}</button>
+            <Link to="/" className="btn btn-secondary">{COPY.leaderboardBackToDashboard}</Link>
+          </div>
+        </div>
+      ) : (
+        <>
       <div className="tabs">
         <button className={`tab-btn ${tab === 'global' ? 'active' : ''}`} onClick={() => setTab('global')}>
-          Global
+          {COPY.leaderboardGlobal}
         </button>
         <button className={`tab-btn ${tab === 'friends' ? 'active' : ''}`} onClick={() => setTab('friends')}>
-          Friends
+          {COPY.leaderboardFriends}
         </button>
       </div>
 
@@ -138,7 +167,7 @@ export default function Leaderboard() {
           {[displayUsers[1], displayUsers[0], displayUsers[2]].map((u, podiumIdx) => {
             const rank = podiumIdx === 0 ? 2 : podiumIdx === 1 ? 1 : 3;
             const heights = { 1: 120, 2: 90, 3: 70 };
-            const colors = { 1: '#f59e0b', 2: '#94a3b8', 3: '#cd7c3a' };
+            const colors = { 1: '#888', 2: '#999', 3: '#777' };
             const initials = u.name.split(' ').map(w => w[0]).join('').slice(0, 2);
             const userKey = u.uid || u.id || u.username || u.name;
             return (
@@ -146,19 +175,35 @@ export default function Leaderboard() {
                 <div style={{ fontSize: '1.5rem', marginBottom: 4 }}>
                   {rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉'}
                 </div>
-                <div style={{
-                  width: 48, height: 48, borderRadius: '50%', margin: '0 auto 8px',
-                  background: u.isMe
-                    ? 'linear-gradient(135deg, var(--accent), var(--accent-dark))'
-                    : `linear-gradient(135deg, ${colors[rank]}88, ${colors[rank]}44)`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '1rem', fontWeight: 700, color: 'white',
-                  border: `2px solid ${colors[rank]}`,
-                }}>
-                  {initials}
-                </div>
+                {u.isMe ? (
+                  <div style={{
+                    width: 48, height: 48, borderRadius: '50%', margin: '0 auto 8px',
+                    background: 'var(--surface-2)',
+                    border: '2px solid var(--border)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '1rem', fontWeight: 700, color: 'var(--text)',
+                  }}>
+                    {initials}
+                  </div>
+                ) : (
+                  <Link to={`/profile/${u.uid || u.id}`} style={{ display: 'block', marginBottom: 8 }}>
+                    <div style={{
+                      width: 48, height: 48, borderRadius: '50%', margin: '0 auto 8px',
+                      background: colors[rank],
+                      border: `2px solid ${colors[rank]}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '1rem', fontWeight: 700, color: '#fff',
+                    }}>
+                      {initials}
+                    </div>
+                  </Link>
+                )}
                 <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text)', marginBottom: 2 }}>
-                  {u.isMe ? 'You' : u.name.split(' ')[0]}
+                  {u.isMe ? COPY.leaderboardYou : (
+                    <Link to={`/profile/${u.uid || u.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
+                      {u.name.split(' ')[0]}
+                    </Link>
+                  )}
                 </div>
                 <div style={{
                   height: heights[rank], background: `${colors[rank]}22`,
@@ -202,22 +247,47 @@ export default function Leaderboard() {
               </div>
 
               <div className="lb-user">
-                <div className="avatar" style={{
-                  background: u.isMe
-                    ? 'linear-gradient(135deg, var(--accent), var(--accent-dark))'
-                    : `hsl(${(avatarSeed || 0) * 37 % 360}, 60%, 45%)`
-                }}>
-                  {initials}
-                </div>
-                <div>
-                  <div className="lb-name">{u.isMe ? 'You' : u.name}</div>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <span className="badge badge-level" style={{ fontSize: '0.65rem', padding: '1px 6px' }}>
-                      Lv {lvlInfo.level}
-                    </span>
-                    <span className="lb-username">@{u.username}</span>
-                  </div>
-                </div>
+                {u.isMe ? (
+                  <>
+                    <div className="avatar" style={{
+                      background: 'var(--surface-2)',
+                      border: '2px solid var(--border)'
+                    }}>
+                      {initials}
+                    </div>
+                    <div>
+                      <div className="lb-name">{COPY.leaderboardYou}</div>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <span className="badge badge-level" style={{ fontSize: '0.65rem', padding: '1px 6px' }}>
+                          Lv {lvlInfo.level}
+                        </span>
+                        <span className="lb-username">@{u.username}</span>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <Link
+                    to={`/profile/${u.uid || u.id}`}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', color: 'inherit', flex: 1
+                    }}
+                  >
+                    <div className="avatar" style={{
+                      background: `hsl(${(avatarSeed || 0) * 37 % 360}, 60%, 45%)`
+                    }}>
+                      {initials}
+                    </div>
+                    <div>
+                      <div className="lb-name">{u.name}</div>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <span className="badge badge-level" style={{ fontSize: '0.65rem', padding: '1px 6px' }}>
+                          Lv {lvlInfo.level}
+                        </span>
+                        <span className="lb-username">@{u.username}</span>
+                      </div>
+                    </div>
+                  </Link>
+                )}
               </div>
 
               <div style={{ textAlign: 'right' }}>
@@ -228,6 +298,9 @@ export default function Leaderboard() {
           );
         })}
       </div>
+        </>
+      )}
+      {showAdd && <AddActivityModal onClose={() => setShowAdd(false)} />}
     </div>
   );
 }

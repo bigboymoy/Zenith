@@ -1,9 +1,19 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Plus, Trash2, Target, Calendar } from 'lucide-react';
 import { useApp } from '../App';
-import { firestoreChallenges } from '../lib/firestore';
+import { firestoreChallenges, firestoreUser } from '../lib/firestore';
+import { trackEvent } from '../lib/analytics';
 import { SPORTS } from '../lib/constants';
 import { formatDistanceToNow } from 'date-fns';
+import { COPY } from '../lib/copy';
+
+// Week key (Monday YYYY-MM-DD) for idempotent weekly challenge claims.
+function getWeekKey(date = new Date()) {
+  const d = new Date(date);
+  d.setDate(d.getDate() - d.getDay() + 1);
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString().slice(0, 10);
+}
 
 const WEEKLY_CHALLENGES = [
   {
@@ -69,7 +79,7 @@ function ChallengeCard({ challenge, onDelete, isWeekly }) {
   const sportColors = {
     run: 'var(--run)', cycle: 'var(--cycle)', swim: 'var(--swim)', lift: 'var(--lift)',
   };
-  const color = sportColors[challenge.sport] || 'var(--accent)';
+  const color = sportColors[challenge.sport] || 'var(--text)';
   const isComplete = pct >= 100;
 
   return (
@@ -79,7 +89,7 @@ function ChallengeCard({ challenge, onDelete, isWeekly }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <span style={{ fontSize: '1.25rem' }}>{challenge.icon || sport?.icon}</span>
             <div className="challenge-name">{challenge.name}</div>
-            {isComplete && <span style={{ fontSize: '0.7rem', color: 'var(--success)', fontWeight: 700 }}>✓ DONE</span>}
+            {isComplete && <span style={{ fontSize: '0.7rem', color: 'var(--success)', fontWeight: 700 }}>{COPY.challengesDone}</span>}
           </div>
           <div className="challenge-desc">{challenge.description}</div>
         </div>
@@ -111,7 +121,7 @@ function ChallengeCard({ challenge, onDelete, isWeekly }) {
             Ends {formatDistanceToNow(new Date(challenge.deadline), { addSuffix: true })}
           </span>
         ) : <span />}
-        {isWeekly && <span style={{ color: 'var(--accent-light)', fontWeight: 600, fontSize: '0.75rem' }}>Community Challenge</span>}
+        {isWeekly && <span style={{ color: 'var(--text-2)', fontWeight: 600, fontSize: '0.75rem' }}>{COPY.challengesCommunity}</span>}
       </div>
     </div>
   );
@@ -128,7 +138,7 @@ function CreateChallengeModal({ onClose, onSave }) {
 
   const handleSave = () => {
     if (!name.trim() || !targetValue || !deadline) {
-      toast('Please fill in all required fields', 'error', '❌');
+      toast(COPY.challengesFillRequired, 'error', '❌');
       return;
     }
     const challenge = {
@@ -149,29 +159,29 @@ function CreateChallengeModal({ onClose, onSave }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()} role="presentation">
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="create-challenge-title">
         <div className="modal-header">
-          <h2 className="modal-title">Create Challenge</h2>
-          <button className="modal-close" onClick={onClose}><Target size={18} /></button>
+          <h2 id="create-challenge-title" className="modal-title">{COPY.challengesModalTitle}</h2>
+          <button type="button" className="modal-close" onClick={onClose} aria-label={COPY.challengesCloseModal}><Target size={18} aria-hidden="true" /></button>
         </div>
 
         <div className="form-group">
-          <label className="form-label">Challenge Name *</label>
-          <input className="form-input" placeholder="e.g. Run 50 Miles in March" value={name} onChange={e => setName(e.target.value)} />
+          <label className="form-label">{COPY.challengesChallengeName}</label>
+          <input className="form-input" placeholder={COPY.challengesPlaceholderName} value={name} onChange={e => setName(e.target.value)} />
         </div>
 
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">Type</label>
+            <label className="form-label">{COPY.challengesType}</label>
             <select className="form-select" value={type} onChange={e => setType(e.target.value)}>
-              <option value="distance">Distance</option>
-              <option value="frequency">Workout Count</option>
-              <option value="duration">Total Time</option>
+              <option value="distance">{COPY.challengesTypeDistance}</option>
+              <option value="frequency">{COPY.challengesTypeFrequency}</option>
+              <option value="duration">{COPY.challengesTypeDuration}</option>
             </select>
           </div>
           <div className="form-group">
-            <label className="form-label">Sport</label>
+            <label className="form-label">{COPY.challengesSport}</label>
             <select className="form-select" value={sport} onChange={e => setSport(e.target.value)}>
               {Object.entries(SPORTS).map(([k, s]) => (
                 <option key={k} value={k}>{s.icon} {s.label}</option>
@@ -183,24 +193,24 @@ function CreateChallengeModal({ onClose, onSave }) {
         <div className="form-row">
           <div className="form-group">
             <label className="form-label">
-              Target ({type === 'distance' ? SPORTS[sport]?.unit : type === 'frequency' ? 'workouts' : 'minutes'}) *
+              {COPY.challengesTarget} ({type === 'distance' ? SPORTS[sport]?.unit : type === 'frequency' ? COPY.challengesWorkouts : COPY.challengesMinutes}) *
             </label>
-            <input type="number" className="form-input" placeholder="50" value={targetValue} onChange={e => setTargetValue(e.target.value)} />
+            <input type="number" className="form-input" placeholder={COPY.challengesPlaceholderTarget} value={targetValue} onChange={e => setTargetValue(e.target.value)} />
           </div>
           <div className="form-group">
-            <label className="form-label">XP Reward</label>
+            <label className="form-label">{COPY.challengesXpReward}</label>
             <input type="number" className="form-input" value={xpReward} onChange={e => setXpReward(e.target.value)} />
           </div>
         </div>
 
         <div className="form-group">
-          <label className="form-label">Deadline *</label>
+          <label className="form-label">{COPY.challengesDeadline}</label>
           <input type="date" className="form-input" value={deadline} onChange={e => setDeadline(e.target.value)} />
         </div>
 
         <div className="form-actions">
-          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={handleSave}>Create Challenge</button>
+          <button className="btn btn-secondary" onClick={onClose}>{COPY.cancel}</button>
+          <button className="btn btn-primary" onClick={handleSave}>{COPY.challengesCreateButton}</button>
         </div>
       </div>
     </div>
@@ -223,7 +233,7 @@ export default function Challenges() {
     return unsub;
   }, [user]);
 
-  // Calculate weekly challenge progress from activities
+  // Calculate weekly challenge progress from activities (must be declared before useEffect that uses it)
   const weeklyWithProgress = useMemo(() => {
     const now = new Date();
     const weekStart = new Date(now);
@@ -248,24 +258,55 @@ export default function Challenges() {
     });
   }, [activities]);
 
+  // Weekly challenge completion is evaluated here on Challenges page load (Weekly tab).
+  // When a challenge's progress meets or exceeds target, we award XP once per challenge per week
+  // and persist the claim in Firestore so it is idempotent on next open.
+  const claimedThisSession = useRef(new Set());
+  useEffect(() => {
+    if (tab !== 'weekly' || !user?.uid || weeklyWithProgress.length === 0) return;
+    const weekKey = getWeekKey();
+    (async () => {
+      const dbUser = await firestoreUser.get(user.uid);
+      const claimed = dbUser?.claimedWeeklyChallenges || {};
+      const toClaim = weeklyWithProgress.filter(
+        (c) => (c.currentValue || 0) >= c.targetValue && claimed[c.id] !== weekKey && !claimedThisSession.current.has(c.id)
+      );
+      if (toClaim.length === 0) return;
+      try {
+        for (const c of toClaim) {
+          await firestoreUser.addXP(user.uid, c.xpReward);
+          claimedThisSession.current.add(c.id);
+          trackEvent('challenge_completed', { challenge_id: c.id, sport: c.sport, xp_reward: c.xpReward });
+          toast(`Weekly challenge complete: ${c.name} +${c.xpReward} XP`, 'success', '🏆');
+        }
+        await firestoreUser.update(user.uid, {
+          claimedWeeklyChallenges: { ...claimed, ...Object.fromEntries(toClaim.map((c) => [c.id, weekKey])) },
+        });
+      } catch (err) {
+        console.error('Failed to claim weekly challenges:', err);
+      }
+    })();
+  }, [tab, user?.uid, weeklyWithProgress, toast]);
+
   const handleCreateChallenge = async (challenge) => {
     try {
       await firestoreChallenges.add({ ...challenge, userId: user.uid });
+      trackEvent('challenge_joined', { challenge_id: challenge.id, sport: challenge.sport, type: 'custom' });
       setShowCreate(false);
-      toast('Challenge created! 🎯', 'success', '🏆');
+      toast(COPY.challengesCreated, 'success', '🏆');
     } catch (err) {
       console.error('Error creating challenge:', err);
-      toast('Failed to create challenge', 'error', '❌');
+      toast(COPY.challengesCreateFailed, 'error', '❌');
     }
   };
 
   const handleDeleteChallenge = async (id) => {
     try {
       await firestoreChallenges.delete(id);
-      toast('Challenge deleted', 'info', '🗑️');
+      toast(COPY.challengesDeleted, 'info', '🗑️');
     } catch (err) {
       console.error('Error deleting challenge:', err);
-      toast('Failed to delete challenge', 'error', '❌');
+      toast(COPY.challengesDeleteFailed, 'error', '❌');
     }
   };
 
@@ -283,20 +324,19 @@ export default function Challenges() {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Challenges</h1>
-          <p className="page-subtitle">Push your limits and earn XP</p>
+          <h1 className="page-title">{COPY.challengesTitle}</h1>
+          <p className="page-subtitle">{COPY.challengesSubtitle}</p>
         </div>
         <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
-          <Plus size={16} /> Create Challenge
-        </button>
+          <Plus size={16} /> {COPY.challengesCreate}</button>
       </div>
 
       <div className="tabs">
         <button className={`tab-btn ${tab === 'weekly' ? 'active' : ''}`} onClick={() => setTab('weekly')}>
-          Weekly Challenges
+          {COPY.challengesWeekly}
         </button>
         <button className={`tab-btn ${tab === 'custom' ? 'active' : ''}`} onClick={() => setTab('custom')}>
-          My Challenges ({customChallenges.length})
+          {COPY.challengesMyChallenges} ({customChallenges.length})
         </button>
       </div>
 
@@ -305,7 +345,7 @@ export default function Challenges() {
           className={`filter-chip ${sportFilter === 'all' ? 'active' : ''}`}
           onClick={() => setSportFilter('all')}
         >
-          All Sports
+          {COPY.challengesAllSports}
         </button>
         {Object.entries(SPORTS).map(([key, sport]) => (
           <button
@@ -321,9 +361,10 @@ export default function Challenges() {
       {tab === 'weekly' && (
         filteredWeeklyChallenges.length === 0 ? (
           <div className="empty-state">
-            <span className="empty-icon">🔎</span>
-            <div className="empty-title">No weekly challenges for this sport</div>
-            <div className="empty-desc">Try another sport filter to see more challenges.</div>
+            <span className="empty-icon" aria-hidden="true">🔎</span>
+            <h3 className="empty-title">{COPY.challengesEmptyWeeklyTitle}</h3>
+            <p className="empty-desc">{COPY.challengesEmptyWeeklyDesc}</p>
+            <button type="button" className="btn btn-primary" onClick={() => setSportFilter('all')}>{COPY.challengesShowAllSports}</button>
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
@@ -337,18 +378,19 @@ export default function Challenges() {
       {tab === 'custom' && (
         customChallenges.length === 0 ? (
           <div className="empty-state">
-            <span className="empty-icon">🎯</span>
-            <div className="empty-title">No custom challenges yet</div>
-            <div className="empty-desc">Create a personal challenge to push yourself further!</div>
-            <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
-              <Plus size={16} /> Create Challenge
+            <span className="empty-icon" aria-hidden="true">🎯</span>
+            <h3 className="empty-title">{COPY.challengesEmptyCustomTitle}</h3>
+            <p className="empty-desc">{COPY.challengesEmptyCustomDesc}</p>
+            <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
+              <Plus size={16} aria-hidden="true" /> {COPY.challengesCreate}
             </button>
           </div>
         ) : filteredCustomChallenges.length === 0 ? (
           <div className="empty-state">
-            <span className="empty-icon">🔎</span>
-            <div className="empty-title">No custom challenges for this sport</div>
-            <div className="empty-desc">Switch your sport filter to view other challenges.</div>
+            <span className="empty-icon" aria-hidden="true">🔎</span>
+            <h3 className="empty-title">{COPY.challengesEmptyCustomFilterTitle}</h3>
+            <p className="empty-desc">{COPY.challengesEmptyCustomFilterDesc}</p>
+            <button type="button" className="btn btn-secondary" onClick={() => setSportFilter('all')}>{COPY.challengesShowAllSports}</button>
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>

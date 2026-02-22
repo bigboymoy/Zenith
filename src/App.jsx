@@ -1,24 +1,38 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { HashRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, Activity, TrendingUp, Trophy, Users, User,
-  Sun, Moon, Bell, Search, Settings, Zap, X, Check, LogOut
+  LayoutDashboard, Activity, TrendingUp, Trophy, Users, User, Flag, UsersRound,
+  Sun, Moon, Bell, Search, Settings, Zap, X, Check, LogOut, Flame, Globe, Rss, Apple
 } from 'lucide-react';
 
 import { settingsStorage } from './lib/storage';
-import { getLevelInfo, checkAchievements } from './lib/gamification';
+import { getLevelInfo, checkAchievements, calculateStreak } from './lib/gamification';
 import { ACHIEVEMENT_DEFS } from './lib/constants';
+import { evaluateAndClaimQuests } from './lib/quests';
+import { shareContent, ACHIEVEMENT_SHARE_TEXT } from './lib/share';
+import { trackEvent } from './lib/analytics';
+import { COPY } from './lib/copy';
 
-import Dashboard from './pages/Dashboard';
-import Activities from './pages/Activities';
-import Progress from './pages/Progress';
-import Challenges from './pages/Challenges';
-import Leaderboard from './pages/Leaderboard';
-import Profile from './pages/Profile';
-import Login from './pages/Login';
-import Signup from './pages/Signup';
+// Route-based code splitting: each page loads in its own chunk
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Activities = lazy(() => import('./pages/Activities'));
+const Progress = lazy(() => import('./pages/Progress'));
+const Challenges = lazy(() => import('./pages/Challenges'));
+const Leaderboard = lazy(() => import('./pages/Leaderboard'));
+const Feed = lazy(() => import('./pages/Feed'));
+const Segments = lazy(() => import('./pages/Segments'));
+const SegmentDetail = lazy(() => import('./pages/SegmentDetail'));
+const Clubs = lazy(() => import('./pages/Clubs'));
+const ClubDetail = lazy(() => import('./pages/ClubDetail'));
+const Nutrition = lazy(() => import('./pages/Nutrition'));
+const Profile = lazy(() => import('./pages/Profile'));
+const Login = lazy(() => import('./pages/Login'));
+const Signup = lazy(() => import('./pages/Signup'));
 
 import { AuthProvider, useAuth } from './context/AuthContext';
+import ErrorBoundary from './components/ErrorBoundary';
+import OfflineIndicator from './components/OfflineIndicator';
+import Onboarding, { getOnboardingDone } from './components/Onboarding';
 import './index.css';
 
 // ── App Context ───────────────────────────────────────────────────────────────
@@ -30,14 +44,41 @@ function ToastContainer({ toasts, removeToast }) {
   return (
     <div className="toast-container">
       {toasts.map(t => (
-        <div key={t.id} className={`toast ${t.type} ${t.exiting ? 'exiting' : ''}`}>
-          <span className="toast-icon">{t.icon}</span>
+        <div key={t.id} className={`toast ${t.type} ${t.exiting ? 'exiting' : ''}`} role="status" aria-live="polite">
+          <span className="toast-icon" aria-hidden="true">{t.icon}</span>
           <span style={{ flex: 1 }}>{t.message}</span>
-          <button className="icon-btn" onClick={() => removeToast(t.id)} style={{ width: 24, height: 24 }}>
-            <X size={14} />
+          {t.action && (
+            <button
+              type="button"
+              className="toast-action-btn"
+              onClick={() => t.action?.onClick?.()}
+            >
+              {t.action.label}
+            </button>
+          )}
+          <button type="button" className="icon-btn" onClick={() => removeToast(t.id)} style={{ width: 24, height: 24 }} aria-label={COPY.dismissNotification}>
+            <X size={14} aria-hidden="true" />
           </button>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ── Page view analytics (route changes) ────────────────────────────────────────
+function PageViewTracker() {
+  const location = useLocation();
+  useEffect(() => {
+    trackEvent('page_view', { route: location.pathname || '/' });
+  }, [location.pathname]);
+  return null;
+}
+
+// ── Suspense fallback for lazy route chunks ─────────────────────────────────────
+function PageLoader() {
+  return (
+    <div className="page-loader" style={{ padding: 24, textAlign: 'center', color: 'var(--text-2)' }} aria-busy="true">
+      {COPY.loading}
     </div>
   );
 }
@@ -56,36 +97,41 @@ function ProtectedRoute({ children }) {
 
 // ── Header ────────────────────────────────────────────────────────────────────
 const NAV_ITEMS = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-  { to: '/activities', label: 'Activities', icon: Activity },
-  { to: '/progress', label: 'Progress', icon: TrendingUp },
-  { to: '/challenges', label: 'Challenges', icon: Trophy },
-  { to: '/leaderboard', label: 'Leaderboard', icon: Users },
-  { to: '/profile', label: 'Profile', icon: User },
+  { to: '/', label: COPY.navDashboard, icon: LayoutDashboard, end: true },
+  { to: '/feed', label: COPY.navFeed, icon: Rss },
+  { to: '/activities', label: COPY.navActivities, icon: Activity },
+  { to: '/progress', label: COPY.navProgress, icon: TrendingUp },
+  { to: '/nutrition', label: COPY.nutritionTitle, icon: Apple },
+  { to: '/challenges', label: COPY.navChallenges, icon: Trophy },
+  { to: '/leaderboard', label: COPY.navLeaderboard, icon: Users },
+  { to: '/clubs', label: COPY.clubsTitle, icon: UsersRound },
+  { to: '/segments', label: COPY.segmentsTitle, icon: Flag },
+  { to: '/profile', label: COPY.navProfile, icon: User },
 ];
 
 const MOBILE_NAV_ITEMS = [
-  { to: '/', label: 'Home', icon: LayoutDashboard, end: true },
-  { to: '/activities', label: 'History', icon: Activity },
-  { to: '/challenges', label: 'Workout', icon: Trophy },
-  { to: '/profile', label: 'Profile', icon: User },
+  { to: '/', label: COPY.navHome, icon: LayoutDashboard, end: true },
+  { to: '/feed', label: COPY.navFeed, icon: Rss },
+  { to: '/activities', label: COPY.navHistory, icon: Activity },
+  { to: '/challenges', label: COPY.navWorkout, icon: Trophy },
+  { to: '/profile', label: COPY.navProfile, icon: User },
 ];
 
-function Header({ userData, levelInfo, theme, toggleTheme }) {
+function Header({ userData, levelInfo, theme, toggleTheme, streak = 0, totalXp = 0 }) {
   const { logout } = useAuth();
   const initials = userData?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'U';
 
   return (
-    <header className="app-header">
+    <header className="app-header" role="banner">
       <div className="header-inner">
         {/* Logo */}
-        <div className="header-logo">
-          <Zap size={22} color="var(--accent)" fill="var(--accent)" />
-          Zenith
+        <div className="header-logo" aria-hidden="true">
+          <Zap size={22} color="var(--text)" aria-hidden="true" />
+          {COPY.zenith}
         </div>
 
         {/* Nav */}
-        <nav className="header-nav">
+        <nav className="header-nav" aria-label="Main navigation">
           {NAV_ITEMS.map(item => (
             <NavLink
               key={item.to}
@@ -93,24 +139,47 @@ function Header({ userData, levelInfo, theme, toggleTheme }) {
               end={item.end}
               className={({ isActive }) => `nav-tab ${isActive ? 'active' : ''}`}
             >
-              <item.icon size={16} />
+              <item.icon size={16} aria-hidden="true" />
               {item.label}
             </NavLink>
           ))}
         </nav>
 
+        {/* Gamification stats (reference: flame streak, globe points) */}
+        <div className="header-actions header-stats">
+          <span className="header-stat-pill" title="Day streak" aria-label={`${streak} day streak`}>
+            <Flame size={12} aria-hidden="true" />
+            {streak}
+          </span>
+          <span className="header-stat-pill globe" title="Total XP" aria-label={`${totalXp.toLocaleString()} XP`}>
+            <Globe size={12} aria-hidden="true" />
+            {totalXp >= 1000 ? `${(totalXp / 1000).toFixed(1)}k` : totalXp}
+          </span>
+        </div>
+
         {/* Actions */}
         <div className="header-actions">
-          <button className="icon-btn" onClick={toggleTheme} title="Toggle theme">
-            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={toggleTheme}
+            title={COPY.toggleTheme}
+            aria-label={theme === 'dark' ? COPY.switchToLightTheme : COPY.switchToDarkTheme}
+          >
+            {theme === 'dark' ? <Sun size={18} aria-hidden="true" /> : <Moon size={18} aria-hidden="true" />}
           </button>
-          
-          <button className="icon-btn" onClick={logout} title="Logout">
-            <LogOut size={18} />
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={logout}
+            title={COPY.logOut}
+            aria-label={COPY.logOut}
+          >
+            <LogOut size={18} aria-hidden="true" />
           </button>
 
           {/* User avatar + XP mini bar */}
-          <NavLink to="/profile" className="user-avatar-btn">
+          <NavLink to="/profile" className="user-avatar-btn" aria-label={COPY.goToProfile}>
             <div className="avatar">
               {initials}
             </div>
@@ -195,9 +264,9 @@ function AppProvider({ children }) {
     });
   }, []);
 
-  const toast = useCallback((message, type = 'info', icon = '✨') => {
+  const toast = useCallback((message, type = 'info', icon = '✨', options = null) => {
     const id = Date.now();
-    setToasts(prev => [...prev, { id, message, type, icon, exiting: false }]);
+    setToasts(prev => [...prev, { id, message, type, icon, action: options?.action, exiting: false }]);
     setTimeout(() => {
       setToasts(prev => prev.map(t => t.id === id ? { ...t, exiting: true } : t));
       setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 350);
@@ -208,8 +277,10 @@ function AppProvider({ children }) {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
-  const refreshUser = () => {}; // AuthContext/Firestore handles this
-  const refreshActivities = () => {}; // Subscription handles this
+  // Safe refresh: subscriptions keep user and activities in sync; no refetch here to avoid
+  // any code path that could re-award XP. Level is derived from user.xp via getLevelInfo.
+  const refreshUser = () => {};
+  const refreshActivities = () => {};
 
   const onActivityAdded = useCallback(async ({ activity, previousActivity = null } = {}) => {
     if (!currentUser) return;
@@ -248,11 +319,27 @@ function AppProvider({ children }) {
 
     await firestoreAchievements.markEarned(currentUser.uid, uniqueNew);
     uniqueNew.forEach((id) => {
+      trackEvent('achievement_unlocked', { achievement_id: id });
       const def = ACHIEVEMENT_DEFS.find((d) => d.id === id);
       if (def) {
-        toast(`Achievement unlocked: ${def.name} ${def.icon}`, 'success', '🏆');
+        toast(`${COPY.toastAchievementUnlocked} ${def.name} ${def.icon}`, 'success', '🏆', {
+          action: {
+            label: COPY.toastShare,
+            onClick: async () => {
+              const result = await shareContent({ text: ACHIEVEMENT_SHARE_TEXT });
+              if (result.copied) toast(COPY.linkCopied, 'success', '📋');
+            },
+          },
+        });
       }
     });
+
+    // After activity save (and achievement check), evaluate daily quest completion and award XP once per quest per day.
+    try {
+      await evaluateAndClaimQuests(currentUser.uid, activitiesForCheck, firestoreUser, toast);
+    } catch (questErr) {
+      console.error('Quest evaluation failed:', questErr);
+    }
   }, [userData, achievements, currentUser, toast]);
 
   const onActivityDeleted = useCallback(async (activityId) => {
@@ -264,10 +351,20 @@ function AppProvider({ children }) {
     }
   }, [currentUser, onActivityAdded]);
 
+  // Optimistic update: show new activity in the list immediately after save.
+  // The Firestore subscription will replace with server state when it fires (no duplicate).
+  const addActivityOptimistic = useCallback((activity) => {
+    if (!activity?.id) return;
+    setActivities((prev) => {
+      if (prev.some((a) => a.id === activity.id)) return prev;
+      return [activity, ...prev];
+    });
+  }, []);
+
   const value = {
     user: userData, activities, achievements, settings,
     levelInfo, toast, toggleTheme,
-    refreshUser, refreshActivities, onActivityAdded, onActivityDeleted,
+    refreshUser, refreshActivities, onActivityAdded, onActivityDeleted, addActivityOptimistic,
   };
 
   return (
@@ -281,15 +378,16 @@ function AppProvider({ children }) {
 // ── Bottom Nav (Mobile) ──────────────────────────────────────────────────────
 function BottomNav() {
   return (
-    <nav className="bottom-nav">
+    <nav className="bottom-nav" aria-label="Mobile navigation">
       {MOBILE_NAV_ITEMS.map(item => (
         <NavLink
           key={item.to}
           to={item.to}
           end={item.end}
           className={({ isActive }) => `bottom-tab ${isActive ? 'active' : ''}`}
+          aria-label={item.label}
         >
-          <item.icon size={20} />
+          <item.icon size={20} aria-hidden="true" />
           <span>{item.label}</span>
         </NavLink>
       ))}
@@ -297,28 +395,57 @@ function BottomNav() {
   );
 }
 
+// ── Skip to main content link (a11y) ────────────────────────────────────────
+function SkipToMain() {
+  return (
+    <a href="#main-content" className="skip-to-main">
+      {COPY.skipToMain}
+    </a>
+  );
+}
+
 // ── App Shell ─────────────────────────────────────────────────────────────────
 function AppShell() {
-  const { user, levelInfo, settings, toggleTheme } = useApp();
+  const { user, activities, levelInfo, settings, toggleTheme } = useApp();
+  const [onboardingDone, setOnboardingDone] = useState(() => getOnboardingDone());
+  const streak = calculateStreak(activities || []);
 
   return (
     <div className="app-wrapper">
+      {!onboardingDone && (
+        <Onboarding
+          user={user}
+          onComplete={() => setOnboardingDone(true)}
+        />
+      )}
+      <SkipToMain />
       <Header
         userData={user}
         levelInfo={levelInfo}
         theme={settings?.theme || 'dark'}
         toggleTheme={toggleTheme}
+        streak={streak}
+        totalXp={user?.xp || 0}
       />
-      <main className="app-main">
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/activities" element={<Activities />} />
-          <Route path="/progress" element={<Progress />} />
-          <Route path="/challenges" element={<Challenges />} />
-          <Route path="/leaderboard" element={<Leaderboard />} />
-          <Route path="/profile" element={<Profile />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+      <main id="main-content" className="app-main" role="main" tabIndex={-1}>
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/activities" element={<Activities />} />
+            <Route path="/progress" element={<Progress />} />
+            <Route path="/challenges" element={<Challenges />} />
+            <Route path="/leaderboard" element={<Leaderboard />} />
+            <Route path="/feed" element={<Feed />} />
+            <Route path="/segments" element={<Segments />} />
+            <Route path="/segments/:segmentId" element={<SegmentDetail />} />
+            <Route path="/clubs" element={<Clubs />} />
+            <Route path="/clubs/:clubId" element={<ClubDetail />} />
+            <Route path="/nutrition" element={<Nutrition />} />
+            <Route path="/profile" element={<Profile />} />
+            <Route path="/profile/:userId" element={<Profile />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
       </main>
       <BottomNav />
     </div>
@@ -327,20 +454,26 @@ function AppShell() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AppProvider>
-        <HashRouter>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/signup" element={<Signup />} />
-            <Route path="*" element={
-              <ProtectedRoute>
-                <AppShell />
-              </ProtectedRoute>
-            } />
-          </Routes>
-        </HashRouter>
-      </AppProvider>
-    </AuthProvider>
+    <ErrorBoundary>
+      <OfflineIndicator />
+      <AuthProvider>
+        <AppProvider>
+          <HashRouter>
+            <PageViewTracker />
+            <Suspense fallback={<PageLoader />}>
+              <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route path="/signup" element={<Signup />} />
+                <Route path="*" element={
+                  <ProtectedRoute>
+                    <AppShell />
+                  </ProtectedRoute>
+                } />
+              </Routes>
+            </Suspense>
+          </HashRouter>
+        </AppProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }

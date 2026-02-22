@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, PointElement,
   LineElement, Title, Tooltip, Legend, Filler
@@ -9,6 +9,8 @@ import { SPORTS } from '../lib/constants';
 import { subDays, format, startOfDay, eachDayOfInterval } from 'date-fns';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
+
+// Defer chart render until after mount so Chart.js does not block first paint.
 
 const FILTERS = [
   { label: '7D', days: 7 },
@@ -21,6 +23,8 @@ export default function PerformanceChart() {
   const { activities } = useApp();
   const [activeFilter, setActiveFilter] = useState(30);
   const [activeSport, setActiveSport] = useState('all');
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   const chartData = useMemo(() => {
     const now = new Date();
@@ -117,6 +121,22 @@ export default function PerformanceChart() {
       },
     },
   };
+
+  if (!mounted) {
+    return (
+      <div className="chart-card">
+        <div className="chart-header">
+          <div>
+            <div className="chart-title">Performance Over Time</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-3)', marginTop: 2 }}>Loading chart…</div>
+          </div>
+        </div>
+        <div className="chart-container" style={{ minHeight: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)' }}>
+          <span aria-hidden="true">📈</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="chart-card">

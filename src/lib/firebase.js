@@ -1,6 +1,12 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import {
+  getAuth,
+  initializeAuth,
+  indexedDBLocalPersistence,
+  browserLocalPersistence
+} from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { Capacitor } from '@capacitor/core';
 
 const requiredFirebaseEnvKeys = [
   'VITE_FIREBASE_API_KEY',
@@ -21,6 +27,7 @@ if (missingFirebaseEnvKeys.length > 0) {
   );
 }
 
+// In production, ensure authDomain and config match the deployed app (e.g. correct domain for redirects).
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -32,6 +39,15 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+
+// Auth persistence: on native (Capacitor) we use indexedDBLocalPersistence so
+// sign-in state is retained in the WebView; on web, getAuth() uses default (e.g. localStorage).
+const auth = Capacitor.isNativePlatform()
+  ? initializeAuth(app, {
+      persistence: [indexedDBLocalPersistence, browserLocalPersistence]
+    })
+  : getAuth(app);
+
+export { auth };
 export const db = getFirestore(app);
 export default app;

@@ -1,15 +1,53 @@
-import React, { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Dumbbell, Flame, Sparkles, Target, Trophy, Zap } from 'lucide-react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Dumbbell, Flame, Sparkles, Target, Trophy, Zap, Check } from 'lucide-react';
 import { useApp } from '../App';
 import { calculateStreak, formatDuration } from '../lib/gamification';
 import { ACHIEVEMENT_DEFS, SPORTS } from '../lib/constants';
 import { startOfWeek } from 'date-fns';
 import AddActivityModal from '../components/AddActivityModal';
+import FirstWeekBanner from '../components/FirstWeekBanner';
+import { getOrCreateDailyQuests, getTodayKey, computeQuestProgress, evaluateAndClaimQuests } from '../lib/quests';
+import { firestoreUser } from '../lib/firestore';
+import { COPY } from '../lib/copy';
+import {
+  getSuggestedWorkout,
+  isRecommendationDismissedToday,
+  dismissRecommendationForToday,
+} from '../lib/recommendations';
 
 export default function Dashboard() {
-  const { user, activities, achievements, levelInfo } = useApp();
+  const { user, activities, achievements, levelInfo, toast } = useApp();
   const [showAdd, setShowAdd] = useState(false);
+  const [addModalSuggestion, setAddModalSuggestion] = useState(null);
+  const [dailyQuests, setDailyQuests] = useState(() => getOrCreateDailyQuests());
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // After onboarding "Log my first workout", open Add Activity
+  useEffect(() => {
+    if (location.state?.openAddActivity) {
+      setShowAdd(true);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state?.openAddActivity, location.pathname, navigate]);
+
+  // Evaluate and claim completed quests when activities or user change (e.g. after save or on load).
+  useEffect(() => {
+    if (!user?.uid) return;
+    evaluateAndClaimQuests(user.uid, activities, firestoreUser, toast).then((r) => r && setDailyQuests(r));
+  }, [user?.uid, activities, toast]);
+
+  useEffect(() => {
+    if (dailyQuests?.date && dailyQuests.date !== getTodayKey()) {
+      setDailyQuests(getOrCreateDailyQuests());
+    }
+  }, [dailyQuests?.date]);
+
+  const questsWithProgress = useMemo(
+    () => computeQuestProgress(dailyQuests?.quests || [], activities),
+    [dailyQuests, activities]
+  );
 
   const metrics = useMemo(() => {
     const now = new Date();
@@ -32,9 +70,9 @@ export default function Dashboard() {
   const firstName = (user?.name || 'Athlete').split(' ')[0];
 
   const quickWorkouts = [
-    { id: 'quick-run', name: 'Quick Run', detail: '20 min cardio', xp: 60, sport: 'run' },
-    { id: 'strength', name: 'Strength Builder', detail: '35 min lifting', xp: 110, sport: 'lift' },
-    { id: 'full-body', name: 'Full Body Mix', detail: '45 min challenge', xp: 160, sport: 'cycle' },
+    { id: 'quick-run', name: COPY.dashboardQuickRun, detail: COPY.dashboardQuickRunDetail, xp: 60, sport: 'run' },
+    { id: 'strength', name: COPY.dashboardStrengthBuilder, detail: COPY.dashboardStrengthBuilderDetail, xp: 110, sport: 'lift' },
+    { id: 'full-body', name: COPY.dashboardFullBodyMix, detail: COPY.dashboardFullBodyMixDetail, xp: 160, sport: 'cycle' },
   ];
 
   const recentAchievements = useMemo(() => {
@@ -52,72 +90,127 @@ export default function Dashboard() {
     return ACHIEVEMENT_DEFS.slice(0, 3);
   }, [achievements]);
 
+  const todayKey = getTodayKey();
+  const suggestion = getSuggestedWorkout(activities, user);
+  const showSuggestion =
+    suggestion && !isRecommendationDismissedToday(todayKey);
+
+  const handleStartSuggestion = () => {
+    setAddModalSuggestion(suggestion);
+    setShowAdd(true);
+  };
+
+  const handleCloseAdd = () => {
+    setShowAdd(false);
+    setAddModalSuggestion(null);
+  };
+
   return (
     <div className="zen-home">
-      <div className="zen-orb zen-orb-one" />
-      <div className="zen-orb zen-orb-two" />
-
-      <section className="zen-topbar">
-        <div>
-          <h1 className="zen-brand">ZENITH</h1>
-          <p className="zen-tagline">Performance tracking that feels elite</p>
-        </div>
-      </section>
+      <FirstWeekBanner
+        user={user}
+        activityCount={activities.length}
+        onLogWorkout={() => setShowAdd(true)}
+      />
 
       <section className="zen-hero">
         <div className="zen-hero-head">
-          <p>Welcome back, {firstName}</p>
-          <div className="zen-streak-pill">
-            <Flame size={16} />
-            <span>{metrics.streak} day streak</span>
+          <p className="zen-hero-welcome">{COPY.dashboardWelcomeBack} {firstName}</p>
+          <div className="zen-hero-pills">
+            <div className="zen-streak-pill">
+              <Flame size={14} />
+              <span>{metrics.streak} {COPY.dashboardDayStreak}</span>
+            </div>
+            <div className="zen-level-chip">
+              <Zap size={14} />
+              <span>Level {levelInfo?.level || 1}</span>
+            </div>
           </div>
         </div>
         <div className="zen-hero-main">
           <div>
-            <p className="zen-level-label">TOTAL XP</p>
+            <p className="zen-level-label">{COPY.dashboardTotalXp}</p>
             <h2 className="zen-level-value zen-level-value-hero">
               {totalXp.toLocaleString()}
             </h2>
           </div>
-          <div className="zen-level-chip">
-            <Zap size={16} />
-            <span>Level {levelInfo?.level || 1}</span>
-          </div>
         </div>
-
         <div className="zen-progress-track">
           <div className="zen-progress-fill" style={{ width: `${Math.max(8, levelInfo?.progress || 0)}%` }} />
         </div>
         <p className="zen-level-sub">
-          <Sparkles size={14} />
-          {isMaxLevel ? 'Max level reached' : `${xpToNext.toLocaleString()} XP to level ${(levelInfo?.level || 1) + 1}`}
+          <Sparkles size={12} />
+          {isMaxLevel ? COPY.dashboardMaxLevel : `${xpToNext.toLocaleString()} ${COPY.dashboardXpToLevel} ${(levelInfo?.level || 1) + 1}`}
         </p>
+        <hr className="zen-hero-divider" />
         <div className="zen-hero-foot">
           <div>
-            <small>Weekly goal</small>
-            <strong>{Math.min(metrics.weekCount, weeklyGoal)} / {weeklyGoal} sessions</strong>
+            <small>{COPY.dashboardWeeklyGoal}</small>
+            <strong>{Math.min(metrics.weekCount, weeklyGoal)} / {weeklyGoal} {COPY.dashboardSessions}</strong>
           </div>
           <div>
-            <small>Total workouts</small>
+            <small>{COPY.dashboardTotalWorkouts}</small>
             <strong>{activities.length}</strong>
           </div>
         </div>
       </section>
 
+      {showSuggestion && (
+        <section className="zen-section" aria-labelledby="suggested-heading">
+          <div className="zen-section-head">
+            <h3 id="suggested-heading">
+              <Target size={18} aria-hidden="true" />
+              {COPY.recommendationsSuggestedForToday}
+            </h3>
+          </div>
+          <div
+            className="zen-recommendation-card"
+            style={{
+              padding: 16,
+              background: 'var(--surface-2)',
+              borderRadius: 12,
+              border: '1px solid var(--border)',
+            }}
+          >
+            <p style={{ margin: '0 0 12px', color: 'var(--text-2)', fontSize: '0.9rem' }}>
+              {suggestion.reason}
+            </p>
+            <p style={{ margin: '0 0 16px', fontWeight: 600, color: 'var(--text)' }}>
+              {SPORTS[suggestion.sport]?.icon} {suggestion.title}
+            </p>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleStartSuggestion}
+                aria-label={COPY.recommendationsStartThisWorkoutAria}
+              >
+                {COPY.recommendationsStartThisWorkout}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => dismissRecommendationForToday(todayKey)}
+              >
+                {COPY.recommendationsNotNow}
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
       <section className="zen-section">
         <div className="zen-section-head">
           <h3>
             <Dumbbell size={18} />
-            Quick Start
+            {COPY.dashboardQuickStart}
           </h3>
         </div>
         <div className="zen-quick-track">
           {quickWorkouts.map(workout => (
-            <button key={workout.id} className={`zen-quick-card zen-quick-${workout.sport}`} onClick={() => setShowAdd(true)}>
-              <div className="zen-quick-card-top">
-                <span>{SPORTS[workout.sport]?.icon}</span>
-                <strong>+{workout.xp} XP</strong>
-              </div>
+            <button key={workout.id} type="button" className={`zen-quick-card zen-quick-${workout.sport}`} onClick={() => setShowAdd(true)} aria-label={`Quick start: ${workout.name}, ${workout.detail}`}>
+              <span className="zen-quick-card-emoji">{SPORTS[workout.sport]?.icon}</span>
+              <span className="zen-quick-xp-badge">+{workout.xp} XP</span>
               <p className="zen-quick-title">{workout.name}</p>
               <p className="zen-quick-sub">{workout.detail}</p>
             </button>
@@ -129,33 +222,77 @@ export default function Dashboard() {
         <div className="zen-section-head">
           <h3>
             <Target size={18} />
-            Weekly Snapshot
+            {COPY.dashboardWeeklySnapshot}
           </h3>
-          <Link to="/activities">Details</Link>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            {metrics.weekVol > 0 && (
+              <Link to="/progress" state={{ scrollTo: 'strength' }}>{COPY.dashboardView1RM}</Link>
+            )}
+            <Link to="/activities">{COPY.dashboardDetails}</Link>
+          </div>
         </div>
         <div className="zen-ribbon">
           <article>
-            <small>Sessions</small>
+            <small>{COPY.dashboardSessionsLabel}</small>
             <strong>{metrics.weekCount}</strong>
           </article>
           <article>
-            <small>Distance</small>
-            <strong>{metrics.weekDist.toFixed(1)} mi</strong>
+            <small>{COPY.dashboardDistance}</small>
+            <strong>{metrics.weekDist.toFixed(1)} {COPY.dashboardMiles}</strong>
           </article>
           <article>
-            <small>Volume</small>
-            <strong>{metrics.weekVol.toLocaleString()} lbs</strong>
+            <small>{COPY.dashboardVolume}</small>
+            <strong>{metrics.weekVol.toLocaleString()} {COPY.dashboardLbs}</strong>
           </article>
           <article>
-            <small>Best streak</small>
-            <strong>{metrics.longestStreak} days</strong>
+            <small>{COPY.dashboardBestStreak}</small>
+            <strong>{metrics.longestStreak} {COPY.dashboardDays}</strong>
           </article>
         </div>
         <div className="zen-goal-track-wrap">
           <div className="zen-goal-track">
             <div className="zen-goal-fill" style={{ width: `${Math.max(6, weeklyGoalProgress)}%` }} />
           </div>
-          <span>{weeklyGoalProgress}% goal completion</span>
+          <span>{weeklyGoalProgress}% {COPY.dashboardGoalCompletion}</span>
+        </div>
+      </section>
+
+      <section className="zen-section">
+        <div className="zen-section-head">
+          <h3>{COPY.dashboardDailyQuests}</h3>
+          <span className="zen-section-sub">{COPY.dashboardQuestsSubtitle}</span>
+        </div>
+        <div className="zen-quests">
+          {questsWithProgress.length === 0 ? (
+            <p className="zen-quests-loading">{COPY.dashboardQuestsLoading}</p>
+          ) : (
+            <>
+              <div className="zen-quests-progress">
+                {questsWithProgress.filter((q) => q.completed).length} / {questsWithProgress.length} {COPY.dashboardQuestsDone}
+              </div>
+              {questsWithProgress.map((q) => {
+                const done = q.completed;
+                const sportIcon = q.sport ? (SPORTS[q.sport]?.icon || '🏃') : '✨';
+                const progressText = q.unit === 'workout' ? `${q.currentValue || 0} / ${q.target}` : `${q.currentValue ?? 0} / ${q.target} ${q.unit}`;
+                return (
+                  <article key={q.id} className={`zen-quest-row ${done ? 'done' : ''}`}>
+                    <span className="zen-quest-icon">{sportIcon}</span>
+                    <div className="zen-quest-body">
+                      <p className="zen-quest-label">{q.label}</p>
+                      <p className="zen-quest-progress">{progressText}</p>
+                    </div>
+                    <div className="zen-quest-right">
+                      {done ? (
+                        <span className="zen-quest-done"><Check size={14} /> {COPY.dashboardQuestDone}</span>
+                      ) : (
+                        <span className="zen-quest-xp">+{q.xpReward} XP</span>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+            </>
+          )}
         </div>
       </section>
 
@@ -163,9 +300,9 @@ export default function Dashboard() {
         <div className="zen-section-head">
           <h3>
             <Trophy size={18} />
-            Recent Achievements
+            {COPY.dashboardRecentAchievements}
           </h3>
-          <Link to="/profile">View all</Link>
+          <Link to="/profile">{COPY.dashboardViewAll}</Link>
         </div>
         <div className="zen-achievements-row">
           {recentAchievements.map(item => (
@@ -179,37 +316,46 @@ export default function Dashboard() {
 
       <section className="zen-section">
         <div className="zen-section-head">
-          <h3>Activity Feed</h3>
-          <Link to="/activities">View all</Link>
+          <h3>{COPY.dashboardActivityFeed}</h3>
+          <Link to="/activities">{COPY.dashboardViewAll}</Link>
         </div>
         {recentActivities.length === 0 ? (
-          <div className="zen-empty">
-            <p>No workouts yet. Log your first one to start building streaks.</p>
-            <button className="btn btn-primary" onClick={() => setShowAdd(true)}>Log Workout</button>
+          <div className="empty-state zen-empty">
+            <span className="empty-icon" aria-hidden="true">🏃</span>
+            <h3 className="empty-title">{COPY.dashboardNoWorkoutsYet}</h3>
+            <p className="empty-desc">{COPY.dashboardNoWorkoutsDesc}</p>
+            <button type="button" className="btn btn-primary" onClick={() => setShowAdd(true)}>{COPY.dashboardLogWorkout}</button>
           </div>
         ) : (
           <div className="zen-recent-list">
             {recentActivities.map(activity => (
               <article key={activity.id} className="zen-recent-item">
                 <div className="zen-recent-left">
-                  <span>{SPORTS[activity.sport]?.icon || '🏃'}</span>
+                  <div className="zen-recent-avatar" aria-hidden="true">
+                    {SPORTS[activity.sport]?.icon || '🏃'}
+                  </div>
                   <div>
                     <p>{activity.title}</p>
                     <small>{formatDuration(activity.duration)}</small>
                   </div>
                 </div>
-                <strong>+{activity.xpEarned} XP</strong>
+                <strong style={{ fontSize: '13px', fontWeight: 600 }}>+{activity.xpEarned} XP</strong>
               </article>
             ))}
           </div>
         )}
       </section>
 
-      <button className="zen-primary-cta" onClick={() => setShowAdd(true)}>
-        START WORKOUT
+      <button type="button" className="zen-primary-cta" onClick={() => setShowAdd(true)} aria-label={COPY.dashboardStartWorkoutAria}>
+        {COPY.dashboardStartWorkout}
       </button>
 
-      {showAdd && <AddActivityModal onClose={() => setShowAdd(false)} />}
+      {showAdd && (
+        <AddActivityModal
+          onClose={handleCloseAdd}
+          initialSuggestion={addModalSuggestion}
+        />
+      )}
     </div>
   );
 }

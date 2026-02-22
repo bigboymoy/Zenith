@@ -111,6 +111,8 @@ export const settingsStorage = {
     theme: 'dark',
     notifications: true,
     privacy: 'public',
+    audioCuesEnabled: false,
+    audioCuesInterval: '1_mi',
   }),
   update: (patch) => {
     const settings = settingsStorage.get();
